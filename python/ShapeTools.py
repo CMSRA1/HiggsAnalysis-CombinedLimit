@@ -620,6 +620,9 @@ class ShapeBuilder(ModelBuilder):
         print procs
         ROOT.TH1.SetDefaultSumw2(True)
         htemp = self.getShape(b,procs[0])
+        if thr != None:
+            raise NotImplementedError,"Can't do threshold"
+        thr = -1
         if htemp != None:
             hsum = htemp.Clone()
         else: 
@@ -632,8 +635,8 @@ class ShapeBuilder(ModelBuilder):
         binVarList = ROOT.RooArgList()
         binScaleList = ROOT.RooArgList()
         for x in range(nbins):
-            if hsum.GetBinContent(x+1)>0.: scalevar = (hsum.GetBinError(x+1) / hsum.GetBinContent(x+1)) if hsum.GetBinContent(x+1) > 0 else 0.
-            else: scalevar = 1.
+            if hsum.GetBinContent(x+1)>0.: scalevar = (hsum.GetBinError(x+1) / hsum.GetBinContent(x+1))
+            else: scalevar = 0.
             if scalevar > thr:
                 print scalevar
                 binvar = b + '_bbblite_' + str(x)
@@ -653,10 +656,13 @@ class ShapeBuilder(ModelBuilder):
         return (binVarList, binScaleList)
 
 
-    def createBBLiteVarsSig(self, b, thr):
+    def createBBLiteVarsSig(self, b, thr=None):
         print 'Doing bb-lite for signal in bin ' + b
         procs = [p for p in self.DC.exp[b].keys() if self.physics.getYieldScale(b,p) != 0 and self.DC.isSignal[p]]
         print procs
+        if thr != None:
+            raise NotImplementedError,"Can't do threshold"
+        thr = -1
         ROOT.TH1.SetDefaultSumw2(True)
         hsum = self.getShape(b,procs[0])
         hsum.Print("range")
@@ -664,8 +670,8 @@ class ShapeBuilder(ModelBuilder):
         binVarList = ROOT.RooArgList()
         binScaleList = ROOT.RooArgList()
         for x in range(nbins):            
-            if hsum.GetBinContent(x+1)>0.: scalevar = (hsum.GetBinError(x+1) / hsum.GetBinContent(x+1)) if hsum.GetBinContent(x+1) > 0 else 0.
-            else: scalevar = 1.
+            if hsum.GetBinContent(x+1)>0.: scalevar = (hsum.GetBinError(x+1) / hsum.GetBinContent(x+1))
+            else: scalevar = 0.
             if scalevar > thr:
                 print scalevar
                 binvar = b + '_bbbliteSig_' + str(x)
