@@ -46,8 +46,8 @@ class ShapeBuilder(ModelBuilder):
             coeffs = ROOT.RooArgList(); bgcoeffs = ROOT.RooArgList()
             (binVarList, binScaleList) = (None, None)
             (binVarListSig, binScaleListSig) = (None, None)
-            if self.options.bbb: (binVarList, binScaleList) = self.createBBLiteVars(b,self.options.bbbThreshold)                
-            if "had" in b and self.options.bbbSig: (binVarListSig, binScaleListSig) = self.createBBLiteVarsSig(b,self.options.bbbThreshold)
+            if self.options.bbb: (binVarList, binScaleList) = self.createBBLiteVars(b)                
+            if "had" in b and self.options.bbbSig: (binVarListSig, binScaleListSig) = self.createBBLiteVarsSig(b)
             for p in self.DC.exp[b].keys(): # so that we get only self.DC.processes contributing to this bin
                 if self.DC.exp[b][p] == 0: continue
                 if self.physics.getYieldScale(b,p) == 0: continue # exclude really the pdf
@@ -614,7 +614,7 @@ class ShapeBuilder(ModelBuilder):
                 return ret
         return pdf
 
-    def createBBLiteVars(self, b, thr):
+    def createBBLiteVars(self, b, thr= None):
         print 'Doing bb-lite for bin ' + b
         procs = [p for p in self.DC.exp[b].keys() if self.physics.getYieldScale(b,p) != 0 and not self.DC.isSignal[p]]
         print procs
