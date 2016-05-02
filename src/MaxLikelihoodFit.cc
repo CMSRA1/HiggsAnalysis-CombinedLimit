@@ -13,6 +13,7 @@
 #include <RooMinimizer.h>
 #include "TCanvas.h"
 #include "TStyle.h"
+#include "TString.h"
 #include "TH2.h"
 #include "TFile.h"
 #include <RooStats/ModelConfig.h>
@@ -479,7 +480,9 @@ void MaxLikelihoodFit::getNormalizations(RooAbsPdf *pdf, const RooArgSet &obs, R
     // create directory structure for shapes
     TDirectory *shapeDir = fOut && saveShapes_ ? fOut->mkdir((std::string("shapes")+postfix).c_str()) : 0;
     std::map<std::string,TDirectory*> shapesByChannel;
+    TH2F * totCovar = new TH2F("total_covar_full","Covariance",snm.size(),0,snm.size(),snm.size(),0,snm.size());
     if (shapeDir) {
+	totCovar->SetDirectory(shapeDir);
         for (IT it = snm.begin(), ed = snm.end(); it != ed; ++it) {
             TDirectory *& sub = shapesByChannel[it->second.channel];
             if (sub == 0) sub = shapeDir->mkdir(it->second.channel.c_str());
@@ -492,8 +495,11 @@ void MaxLikelihoodFit::getNormalizations(RooAbsPdf *pdf, const RooArgSet &obs, R
     std::map<std::string,TH1*> totByCh, totByCh2, sigByCh, sigByCh2, bkgByCh, bkgByCh2;
     std::map<std::string,TH2*> totByCh2Covar;
     IT bg = snm.begin(), ed = snm.end(), pair; int i;
+    IT bg2 = snm.begin(), ed2 = snm.end(), pair2; int j;
     for (pair = bg, i = 0; pair != ed; ++pair, ++i) {  
         vals[i] = pair->second.norm->getVal();
+	totCovar->GetXaxis()->SetBinLabel(i+1,TString(pair->second.channel));
+	totCovar->GetYaxis()->SetBinLabel(i+1,TString(pair->second.channel));
         //out.addOwned(*(new RooConstVar(pair->first.c_str(), "", pair->second.norm->getVal())));
         if (fOut != 0 && saveShapes_ && pair->second.obs.getSize() == 1) {
             RooRealVar *x = (RooRealVar*)pair->second.obs.at(0);
@@ -560,6 +566,10 @@ void MaxLikelihoodFit::getNormalizations(RooAbsPdf *pdf, const RooArgSet &obs, R
             params->assignValueOnly( sampler.get(t) );
             for (pair = bg, i = 0; pair != ed; ++pair, ++i) { 
                 // add up deviations in numbers for each channel
+		for (pair2 = bg2,j = 0; pair2 != ed2; ++pair2, ++j) { 
+		    double covar = (pair->second.norm->getVal() - vals[i])*(pair2->second.norm->getVal()-vals[j]);  
+		    totCovar->AddBinContent(totCovar->GetBin(i+1,j+1),covar);
+		}
                 sumx2[i] += std::pow(pair->second.norm->getVal() - vals[i], 2);  
                 if (saveShapes_ && pair->second.obs.getSize() == 1) {
                     // and also deviations in the shapes
@@ -628,6 +638,12 @@ void MaxLikelihoodFit::getNormalizations(RooAbsPdf *pdf, const RooArgSet &obs, R
 	      }
             }
 	}
+	// same for total covariance
+	for (int b = 1, nb = totCovar->GetNbinsX(); b <= nb; ++b) {
+	  for (int bj = 1, nbj = totCovar->GetNbinsY(); bj <= nbj; ++bj) {    
+	    totCovar->SetBinContent(b,bj, (totCovar->GetBinContent(b,bj)/ntoys));
+	  }
+	}
 
         for (IH h = sigByCh.begin(), eh = sigByCh.end(); h != eh; ++h) {
             TH1 *sum2 = sigByCh2[h->first];
@@ -656,6 +672,7 @@ void MaxLikelihoodFit::getNormalizations(RooAbsPdf *pdf, const RooArgSet &obs, R
     }
     if (fOut) {
         fOut->WriteTObject(&out, (std::string("norm")+postfix).c_str());
+	shapeDir->WriteTObject(totCovar);
         for (IH h = totByCh.begin(), eh = totByCh.end(); h != eh; ++h) { shapesByChannel[h->first]->WriteTObject(h->second); }
         for (IH h = sigByCh.begin(), eh = sigByCh.end(); h != eh; ++h) { shapesByChannel[h->first]->WriteTObject(h->second); }
         for (IH h = bkgByCh.begin(), eh = bkgByCh.end(); h != eh; ++h) { shapesByChannel[h->first]->WriteTObject(h->second); }
