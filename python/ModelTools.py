@@ -120,9 +120,13 @@ class ModelBuilder(ModelBuilderBase):
 
         ## Do the last part of doNuisances() here instead
         if self.options.bin:
-            self.out.defineSet("nuisances", self.out.nuisVars)
-            self.out.nuisPdf = ROOT.RooProdPdf("nuisancePdf", "nuisancePdf", self.out.nuisPdfs)
+            for (n,nf,p,a,e) in self.DC.systs:
+                nuisVars.add(self.out.var(n))
+                nuisPdfs.add(self.out.pdf(n+"_Pdf"))
+            self.out.defineSet("nuisances", nuisVars)
+            self.out.nuisPdf = ROOT.RooProdPdf("nuisancePdf", "nuisancePdf", nuisPdfs)
             self.out._import(self.out.nuisPdf)
+            self.out.nuisPdfs = nuisPdfs
             gobsVars = ROOT.RooArgSet()
             for g in self.globalobs: gobsVars.add(self.out.var(g))
             self.out.defineSet("globalObservables", gobsVars)
@@ -130,6 +134,7 @@ class ModelBuilder(ModelBuilderBase):
             self.doSet("nuisances", ",".join(["%s"    % n for (n,nf,p,a,e) in self.DC.systs]))
             self.doObj("nuisancePdf", "PROD", ",".join(["%s_Pdf" % n for (n,nf,p,a,e) in self.DC.systs]))
             self.doSet("globalObservables", ",".join(self.globalobs))
+
         for groupName,nuisanceNames in self.DC.groups.iteritems():
             nuisanceargset = ROOT.RooArgSet()
             for nuisanceName in nuisanceNames:
@@ -455,23 +460,6 @@ class ModelBuilder(ModelBuilderBase):
             #self.out.var(n).Print('V')
             if n in self.DC.frozenNuisances:
                 self.out.var(n).setConstant(True)
-        if self.options.bin:
-            nuisPdfs = ROOT.RooArgList()
-            nuisVars = ROOT.RooArgSet()
-            for (n,nf,p,a,e) in self.DC.systs:
-                nuisVars.add(self.out.var(n))
-                nuisPdfs.add(self.out.pdf(n+"_Pdf"))
-            self.out.defineSet("nuisances", nuisVars)
-            self.out.nuisPdf = ROOT.RooProdPdf("nuisancePdf", "nuisancePdf", nuisPdfs)
-            self.out._import(self.out.nuisPdf)
-            self.out.nuisPdfs = nuisPdfs
-            gobsVars = ROOT.RooArgSet()
-            for g in self.globalobs: gobsVars.add(self.out.var(g))
-            self.out.defineSet("globalObservables", gobsVars)
-        else: # doesn't work for too many nuisances :-(
-            self.doSet("nuisances", ",".join(["%s"    % n for (n,nf,p,a,e) in self.DC.systs]))
-            self.doObj("nuisancePdf", "PROD", ",".join(["%s_Pdf" % n for (n,nf,p,a,e) in self.DC.systs]))
-            self.doSet("globalObservables", ",".join(self.globalobs))
 	
     def doNuisancesGroups(self):
         # Prepare a dictionary of which group a certain nuisance belongs to
