@@ -1,5 +1,5 @@
-#include "../interface/ToyMCSamplerOpt.h"
-#include "../interface/utils.h"
+#include "HiggsAnalysis/CombinedLimit/interface/ToyMCSamplerOpt.h"
+#include "HiggsAnalysis/CombinedLimit/interface/utils.h"
 #include <memory>
 #include <stdexcept>
 #include <TH1.h>
@@ -12,7 +12,7 @@
 #include <RooDataHist.h>
 #include <RooDataSet.h>
 #include <RooRandom.h>
-#include <../interface/ProfilingTools.h>
+#include <HiggsAnalysis/CombinedLimit/interface/ProfilingTools.h>
 #include "RooStats/DetailedOutputAggregator.h"
 
 using namespace std;
@@ -132,8 +132,9 @@ RooDataSet *
 toymcoptutils::SinglePdfGenInfo::generateAsimov(RooRealVar *&weightVar, double weightScale) 
 {
     if (mode_ == Counting) return generateCountingAsimov();
-    int nPA = runtimedef::get("TMCSO_PseudoAsimov");
-    if (observables_.getSize() > 1 && runtimedef::get("TMCSO_AdaptivePseudoAsimov")) {
+    int nPA = runtimedef::get("TMCSO_PseudoAsimov");  // Will trigger the use of weighted data 
+    int boostAPA = runtimedef::get("TMCSO_AdaptivePseudoAsimov");
+    if (boostAPA) {  // trigger adaptive PA (setting boostAPA=1 will just use internal logic)
         int nbins = 1;
         RooLinkedListIter iter = observables_.iterator(); 
         for (RooAbsArg *a = (RooAbsArg *) iter.Next(); a != 0; a = (RooAbsArg *) iter.Next()) {
@@ -147,7 +148,7 @@ toymcoptutils::SinglePdfGenInfo::generateAsimov(RooRealVar *&weightVar, double w
             //printf("generating asimov from %s: bins %d, events %.1f\n",
             //                    pdf_->GetName(), nbins, nev );
             if (nev < 0.01*nbins) {
-                nPA = std::max<int>(100*nev, 1000);
+                nPA = std::max<int>(100*nev, 1000) * boostAPA;
                 //printf("generating asimov from %s: bins %d, events %.1f --> pseudo-asimov entries %d\n",
                 //                    pdf_->GetName(), nbins, nev, nPA );
             }
@@ -364,7 +365,7 @@ toymcoptutils::SimPdfGenInfo::generate(RooRealVar *&weightVar, const RooDataSet*
                 RooDataSet *wdata = new RooDataSet(data->GetName(), "", obs, "_weight_");
                 for (int i = 0, n = data->numEntries(); i < n; ++i) {
                     obs = *data->get(i);
-                    if (data->weight()) wdata->add(obs, data->weight());
+                    wdata->add(obs, data->weight());
                 }
                 //std::cout << "DataHist was " << std::endl; utils::printRAD(data);
                 delete data;

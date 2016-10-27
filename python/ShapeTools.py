@@ -14,6 +14,7 @@ class ShapeBuilder(ModelBuilder):
                 ROOT.gSystem.Load(lib)
     	self.wspnames = {}
     	self.wsp = None
+	self.norm_rename_map = {}
     ## ------------------------------------------
     ## -------- ModelBuilder interface ----------
     ## ------------------------------------------
@@ -82,11 +83,18 @@ class ShapeBuilder(ModelBuilder):
                     bgpdfs.add(pdf); bgcoeffs.add(coeff)
             if self.options.verbose > 1: print "Creating RooAddPdf %s with %s elements" % ("pdf_bin"+b, coeffs.getSize())
             sum_s = ROOT.RooAddPdf("pdf_bin%s"       % b, "",   pdfs,   coeffs)
+            sum_s.setAttribute("MAIN_MEASUREMENT") # useful for plain ROOFIT optimization on ATLAS side
             if not self.options.noBOnly: sum_b = ROOT.RooAddPdf("pdf_bin%s_bonly" % b, "", bgpdfs, bgcoeffs)
             if b in self.pdfModes: 
                 sum_s.setAttribute('forceGen'+self.pdfModes[b].title())
                 if not self.options.noBOnly: sum_b.setAttribute('forceGen'+self.pdfModes[b].title())
-            if len(self.DC.systs) and (self.options.noOptimizePdf or not self.options.moreOptimizeSimPdf):
+            addSyst = False
+            if    self.options.moreOptimizeSimPdf == "none":   addSyst = True
+            elif  self.options.moreOptimizeSimPdf == "lhchcg": addSyst = (i > 1)
+            elif  self.options.moreOptimizeSimPdf == "cms":
+                if self.options.noOptimizePdf: raise RuntimeError, "--optimize-simpdf-constraints=cms is incompatible with --no-optimize-pdfs"
+                addSyst = False
+            if len(self.DC.systs) and addSyst:
                 ## rename the pdfs
                 sum_s.SetName("pdf_bin%s_nuis" % b); 
                 if not self.options.noBOnly: sum_b.SetName("pdf_bin%s_bonly_nuis" % b)
@@ -122,12 +130,18 @@ class ShapeBuilder(ModelBuilder):
         ## Contrary to Number-counting models, here each channel PDF already contains the nuisances
         ## So we just have to build the combined pdf
         if len(self.DC.bins) > 1 or not self.options.forceNonSimPdf:
+            if self.options.doMasks:
+                maskList = ROOT.RooArgList()
+                for b in self.DC.bins:
+                    maskList.add(self.out.arg(self.physics.getChannelMask(b)))
             for (postfixIn,postfixOut) in [ ("","_s"), ("_bonly","_b") ]:
                 simPdf = ROOT.RooSimultaneous("model"+postfixOut, "model"+postfixOut, self.out.binCat) if self.options.noOptimizePdf else ROOT.RooSimultaneousOpt("model"+postfixOut, "model"+postfixOut, self.out.binCat)
                 for b in self.DC.bins:
                     pdfi = self.out.pdf("pdf_bin%s%s" % (b,postfixIn))
                     simPdf.addPdf(pdfi, b)
-                if len(self.DC.systs) and (not self.options.noOptimizePdf) and self.options.moreOptimizeSimPdf:
+                if (not self.options.noOptimizePdf) and self.options.doMasks:
+                    simPdf.addChannelMasks(maskList)
+                if len(self.DC.systs) and (not self.options.noOptimizePdf) and self.options.moreOptimizeSimPdf == "cms":
                     simPdf.addExtraConstraints(self.out.nuisPdfs)
                 if self.options.verbose:
                     stderr.write("Importing combined pdf %s\n" % simPdf.GetName()); stderr.flush()
@@ -318,11 +332,14 @@ class ShapeBuilder(ModelBuilder):
                 if not syst:
                   normname = "%s_norm" % (oname)
                   norm = self.wsp.arg(normname)
+		  if norm==None: 
+			if normname in self.norm_rename_map.keys(): norm = self.wsp.arg(self.norm_rename_map[normname])
                   if norm: 
                     if normname in self.DC.flatParamNuisances: 
                         self.DC.flatParamNuisances[normname] = False # don't warn if not found
                         norm.setAttribute("flatParam")
                     norm.SetName("shape%s_%s_%s%s_norm" % (postFix,process,channel, "_"))
+		    self.norm_rename_map[normname]=norm.GetName()
                     self.out._import(norm, ROOT.RooFit.RecycleConflictNodes()) 
                 if self.options.verbose > 2: print "import (%s,%s) -> %s\n" % (finalNames[0],objname,ret.GetName())
                 return ret;
@@ -384,8 +401,10 @@ class ShapeBuilder(ModelBuilder):
                 raise RuntimeError, errmsg+" One can use only one morphing algorithm for a given shape";
             if errline[channel][process] != 0:
                 if allowNoSyst and not self.isShapeSystematic(channel,process,syst): continue
-                shapeUp   = self.getShape(channel,process,syst+"Up")
-                shapeDown = self.getShape(channel,process,syst+"Down")
+		systShapeName = syst
+		if (syst,channel,process) in self.DC.systematicsShapeMap.keys(): systShapeName = self.DC.systematicsShapeMap[(syst,channel,process)]
+                shapeUp   = self.getShape(channel,process,systShapeName+"Up")
+                shapeDown = self.getShape(channel,process,systShapeName+"Down")
                 if shapeUp.ClassName()   != shapeNominal.ClassName(): raise RuntimeError, "Mismatched shape types for channel %s, process %s, syst %s" % (channel,process,syst)
                 if shapeDown.ClassName() != shapeNominal.ClassName(): raise RuntimeError, "Mismatched shape types for channel %s, process %s, syst %s" % (channel,process,syst)
                 if self.options.useHistPdf == "always":
@@ -468,7 +487,9 @@ class ShapeBuilder(ModelBuilder):
             _cache[(channel,process)] = ROOT.VerticalInterpPdf("shape%s_%s_%s_morph" % (postFix,channel,process), "", pdfs, coeffs, qrange, qalgo)
         return _cache[(channel,process)]
     def isShapeSystematic(self,channel,process,syst):
-        shapeUp = self.getShape(channel,process,syst+"Up",allowNoSyst=True)    
+    	systShapeName = syst
+	if (syst,channel,process) in self.DC.systematicsShapeMap.keys(): systShapeName = self.DC.systematicsShapeMap[(syst,channel,process)]
+        shapeUp = self.getShape(channel,process,systShapeName+"Up",allowNoSyst=True)    
         return shapeUp != None
     def getExtraNorm(self,channel,process):
         postFix="Sig" if (process in self.DC.isSignal and self.DC.isSignal[process]) else "Bkg"
@@ -491,8 +512,10 @@ class ShapeBuilder(ModelBuilder):
             if "shape" not in pdf: continue
             if errline[channel][process] != 0:
                 if pdf[-1] == "?" and not self.isShapeSystematic(channel,process,syst): continue
-                shapeUp   = self.getShape(channel,process,syst+"Up")
-                shapeDown = self.getShape(channel,process,syst+"Down")
+		systShapeName = syst
+	        if (syst,channel,process) in self.DC.systematicsShapeMap.keys(): systShapeName = self.DC.systematicsShapeMap[(syst,channel,process)]
+                shapeUp   = self.getShape(channel,process,systShapeName+"Up")
+                shapeDown = self.getShape(channel,process,systShapeName+"Down")
                 if shapeUp.ClassName()   != shapeNominal.ClassName(): raise RuntimeError, "Mismatched shape types for channel %s, process %s, syst" % (channel,process,syst)
                 if shapeDown.ClassName() != shapeNominal.ClassName(): raise RuntimeError, "Mismatched shape types for channel %s, process %s, syst" % (channel,process,syst)
                 kappaUp,kappaDown = 1,1

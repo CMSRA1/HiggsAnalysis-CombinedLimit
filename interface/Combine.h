@@ -3,6 +3,7 @@
 #include <TString.h>
 #include <boost/program_options.hpp>
 #include "RooArgSet.h"
+#include "RooAbsReal.h"
 #include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/classification.hpp>
 
@@ -13,7 +14,8 @@ class RooWorkspace;
 class RooAbsData;
 namespace RooStats { class ModelConfig; }
 
-extern Float_t t_cpu_, t_real_, g_quantileExpected_;
+extern Float_t t_cpu_, t_real_, g_quantileExpected_; 
+extern bool g_fillTree_; 
 //RooWorkspace *writeToysHere = 0;
 extern TDirectory *outputFile;
 extern TDirectory *writeToysHere;
@@ -39,6 +41,9 @@ public:
   
   void run(TString hlfFile, const std::string &dataset, double &limit, double &limitErr, int &iToy, TTree *tree, int nToys);
  
+  /// Stop combine from fillint the tree (some algos need control)
+  static void toggleGlobalFillTree(bool flag=false);
+
   /// Save a point into the output tree. Usually if expected = false, quantile should be set to -1 (except e.g. for saveGrid option of HybridNew)
   static void commitPoint(bool expected, float quantile);
 
@@ -52,18 +57,21 @@ private:
   void addPOI(const RooArgSet *);
 
   boost::program_options::options_description statOptions_, ioOptions_, miscOptions_;
- 
+
   // statistics-related variables
   bool unbinned_, generateBinnedWorkaround_, newGen_, guessGenMode_; 
+  std::string genAsBinned_, genAsUnbinned_;
   float rMin_, rMax_;
   std::string prior_;
   bool hintUsesStatOnly_;
   bool toysNoSystematics_;
   bool toysFrequentist_;
   float expectSignal_;
+  bool expectSignalSet_;  // keep track of whether or not expectSignal was defaulted
   float expectSignalMass_;
   std::string redefineSignalPOIs_;
   std::string freezeNuisances_;
+  std::string floatNuisances_;
   std::string freezeNuisanceGroups_;
   
   // input-output related variables
@@ -82,10 +90,16 @@ private:
   bool rebuildSimPdf_;
   bool optSimPdf_;
   bool noMCbonly_;
+  bool noDefaultPrior_;
   bool floatAllNuisances_;
   bool freezeAllGlobalObs_;
-
+  std::vector<std::string> librariesToLoad_;
+  
   static TTree *tree_;
+
+  static std::vector<std::pair<RooAbsReal*,float> > trackedParametersMap_;
+  static std::string  trackParametersNameString_;
+
 };
 
 #endif

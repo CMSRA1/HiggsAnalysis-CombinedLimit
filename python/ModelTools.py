@@ -5,6 +5,20 @@ from math import *
 ROOFIT_EXPR = "expr"
 ROOFIT_EXPR_PDF = "EXPR"
 
+class SafeWorkspaceImporter():
+    """Class that provides the RooWorkspace::import method, but makes sure we call the proper
+       overload of it, since in ROOT 6 sometimes PyROOT calls the wrong one"""
+    def __init__(self,wsp):
+        self.wsp = wsp
+        self.imp = getattr(wsp,"import")
+    def __call__(self,*args):
+        if len(args) != 1:
+            self.imp(*args)
+        elif args[0].Class().InheritsFrom("RooAbsReal") or args[0].Class().InheritsFrom("RooArgSet") or args[0].Class().InheritsFrom("RooAbsData") or args[0].Class().InheritsFrom("RooCategory"):
+            self.imp(args[0], ROOT.RooCmdArg()) # force the proper overload to be called
+        else:
+            self.imp(*args)
+
 class ModelBuilderBase():
     """This class defines the basic stuff for a model builder, and it's an interface on top of RooWorkspace::factory or HLF files"""
     def __init__(self,options):
@@ -17,7 +31,8 @@ class ModelBuilderBase():
             ROOT.gSystem.Load("libHiggsAnalysisCombinedLimit")
             ROOT.TH1.AddDirectory(False)
             self.out = ROOT.RooWorkspace("w","w");
-            self.out._import = getattr(self.out,"import") # workaround: import is a python keyword
+            #self.out._import = getattr(self.out,"import") # workaround: import is a python keyword
+            self.out._import = SafeWorkspaceImporter(self.out)
             self.out.dont_delete = []
             if options.verbose == 0:
                 ROOT.RooMsgService.instance().setGlobalKillBelow(ROOT.RooFit.ERROR)
@@ -34,10 +49,13 @@ class ModelBuilderBase():
             global ROOFIT_EXPR;
             ROOFIT_EXPR = "cexpr"            
     def factory_(self,X):
+        if self.options.verbose >= 7:
+            print "RooWorkspace::factory('%s')" % X
         if (len(X) > 1000):
             print "Executing factory with a string of length ",len(X)," > 1000, could trigger a bug: ",X
         ret = self.out.factory(X);
         if ret: 
+            if self.options.verbose >= 7: print " ---> ",ret
             self.out.dont_delete.append(ret)
             return ret
         else:
@@ -84,7 +102,6 @@ class ModelBuilder(ModelBuilderBase):
 
         self.physics.preProcessNuisances(self.DC.systs)
         self.doNuisances()
-
         ## This part used to be at the end of doNuisances
         ## We now attach nuisPdfs and nuisVars to self.out
         ## so that we can access them in in the shape part
@@ -119,7 +136,10 @@ class ModelBuilder(ModelBuilderBase):
                 nuisanceargset.add(self.out.var(nuisanceName))
             self.out.defineSet("group_%s"%groupName,nuisanceargset)
 
+	self.doExtArgs()
+        self.doNuisancesGroups() # this needs to be called after both doNuisances and doIndividualModels
         self.doCombination()
+	self.runPostProcesses()
         self.physics.done()
         if self.options.bin:
             self.doModelConfigs()
@@ -128,7 +148,83 @@ class ModelBuilder(ModelBuilderBase):
                 self.out.pdf("model_s").graphVizTree(self.options.out+".dot", "\\n")
                 print "Wrote GraphVizTree of model_s to ",self.options.out+".dot"
 
+
+    def runPostProcesses(self):
+      for n in self.DC.frozenNuisances:
+         self.out.arg(n).setConstant(True)
+
+    def doExtArgs(self):
+	open_files = {};
+	for rp in self.DC.extArgs.keys():
+	  if self.out.arg(rp): continue
+	  argv = self.DC.extArgs[rp][-1]
+	  if ":" in argv:
+	    fin,wsn = argv.split(":")
+	    if (fin,wsn) in open_files: 
+		  wstmp = open_files[(fin,wsn)]
+		  if not wstmp.arg(rp): 
+		   raise RuntimeError, "No parameter '%s' found for extArg in workspace %s from file %s"%(rp,wsn,fin)
+		  self.out._import(wstmp.arg(rp))
+	    else:
+	      try:
+		fitmp = ROOT.TFile.Open(fin)
+		wstmp = fitmp.Get(wsn)
+		if not wstmp.arg(rp): 
+		 raise RuntimeError, "No parameter '%s' found for extArg in workspace %s from file %s"%(rp,wsn,fin)
+		self.out._import(wstmp.arg(rp))
+		open_files[(fin,wsn)] = wstmp
+	      except: 
+		raise RuntimeError, "No File '%s' found for extArg, or workspace '%s' not in file "%(fin,wsn)
+	  else:
+	      param_range = ""
+	      param_val   = self.DC.extArgs[rp][-1]
+	      if len(self.DC.extArgs[rp])>3: # range is included: 
+	        param_range = self.DC.extArgs[rp][-1]
+	        param_val   = self.DC.extArgs[rp][-2]
+	    	if "[" not in param_range: 
+			  raise RuntimeError, "Expected range arguments [min,max] for extArg %s "%(rp)
+	  	param_range = param_range.strip('[]')
+	      
+	      removeRange = False
+	      if param_range == "": 
+	      	param_range = "0,1" 
+		removeRange=True
+
+	      self.doVar("%s[%s,%s]"%(rp,float(param_val),param_range))
+	      if removeRange: self.out.var(rp).removeRange()
+	      self.out.var(rp).setConstant(False)
+	      self.out.var(rp).setAttribute("flatParam")
+	  	
     def doRateParams(self):
+
+    	# First support external functions/parameters
+	# keep a map of open files/workspaces 
+	open_files = {};
+
+	for rp in self.DC.rateParams.keys():
+	 for rk in range(len(self.DC.rateParams[rp])):
+	  type = self.DC.rateParams[rp][rk][0][-1]
+	  if type!=2: continue
+	  argu,argv = self.DC.rateParams[rp][rk][0][0],self.DC.rateParams[rp][rk][0][1]
+	  if self.out.arg(argu): continue
+	  fin,wsn = argv.split(":")
+	  if (fin,wsn) in open_files: 
+	        wstmp = open_files[(fin,wsn)]
+	        if not wstmp.arg(argu): 
+	         raise RuntimeError, "No parameter '%s' found for rateParam in workspace %s from file %s"%(argu,wsn,fin)
+	        self.out._import(wstmp.arg(argu))
+	  else:
+	    try:
+	      fitmp = ROOT.TFile.Open(fin)
+	      wstmp = fitmp.Get(wsn)
+	      if not wstmp.arg(argu): 
+	       raise RuntimeError, "No parameter '%s' found for rateParam in workspace %s from file %s"%(argu,wsn,fin)
+	      self.out._import(wstmp.arg(argu))
+	      open_files[(fin,wsn)] = wstmp
+	      #fitmp.Close()
+	    except: 
+	      raise RuntimeError, "No File '%s' found for rateParam, or workspace '%s' not in file "%(fin,wsn)
+
 	# First do independant parameters, then expressions
 	for rp in self.DC.rateParams.keys():
 	 for rk in range(len(self.DC.rateParams[rp])):
@@ -173,10 +269,22 @@ class ModelBuilder(ModelBuilderBase):
                 else:
                     groupsFor[nuisanceName] = [ groupName ]
 
-        #print self.DC.groups
-        #print groupsFor
         for cpar in self.DC.discretes: self.addDiscrete(cpar)
-        for (n,nofloat,pdf,args,errline) in self.DC.systs: 
+        for (n,nofloat,pdf,args,errline) in self.DC.systs:
+            is_func_scaled = False
+            func_scaler = None
+            for pn,pf in self.options.nuisanceFunctions:
+                if re.match(pn, n):
+                    is_func_scaled = True
+                    func_scaler = pf
+                    if self.options.verbose > 1:
+                        print 'Rescaling %s constraint as %s' % (n, pf)
+            for pn,pf in self.options.nuisanceGroupFunctions:
+                if pn in self.DC.groups and n in self.DC.groups[pn]:
+                    is_func_scaled = True
+                    func_scaler = pf
+                    if self.options.verbose > 1:
+                        print 'Rescaling %s constraint (in group %s) as %s' % (n, pn, pf)
             if pdf == "lnN" or (pdf.startswith("shape") and pdf != 'shapeU'):
                 r = "-4,4" if pdf == "shape" else "-7,7"
                 sig = 1.0;
@@ -184,17 +292,24 @@ class ModelBuilder(ModelBuilderBase):
                     if re.match(pn, n): 
                         sig = float(pf); sigscale = sig * (4 if pdf == "shape" else 7)
                         r = "-%g,%g" % (sigscale,sigscale)
+                sig = '%g' % sig
+                if is_func_scaled:
+                    sig = func_scaler
 		r_exp = "" if self.out.var(n) else "[%s]"%r # Specify range to invoke factory to produce a RooRealVar only if it doesn't already exist
-                if self.options.noOptimizePdf:
-                      self.doObj("%s_Pdf" % n, "Gaussian", "%s%s, %s_In[0,%s], %g" % (n,r_exp,n,r,sig),True); # Use existing constraint since it could be a param
+                if self.options.noOptimizePdf or is_func_scaled:
+                      self.doObj("%s_Pdf" % n, "Gaussian", "%s%s, %s_In[0,%s], %s" % (n,r_exp,n,r,sig),True); # Use existing constraint since it could be a param
+                      if is_func_scaled:
+                        boundHi = self.doObj("%s_BoundHi" % n, "prod", "5, %s" % sig)
+                        boundLo = self.doObj("%s_BoundLo" % n, "prod", "-5, %s" % sig)
+                        self.out.var(n).setRange(boundLo, boundHi)
                 else:
-                      self.doObj("%s_Pdf" % n, "SimpleGaussianConstraint", "%s%s, %s_In[0,%s], %g" % (n,r_exp,n,r,sig),True);# Use existing constraint since it could be a param
+                      self.doObj("%s_Pdf" % n, "SimpleGaussianConstraint", "%s%s, %s_In[0,%s], %s" % (n,r_exp,n,r,sig),True);# Use existing constraint since it could be a param
                 self.out.var(n).setVal(0)
                 self.out.var(n).setError(1) 
                 self.globalobs.append("%s_In" % n)
                 if self.options.bin:
                   self.out.var("%s_In" % n).setConstant(True)
-                if self.options.optimizeBoundNuisances: self.out.var(n).setAttribute("optimizeBounds")
+                if self.options.optimizeBoundNuisances and not is_func_scaled: self.out.var(n).setAttribute("optimizeBounds")
             elif pdf == "gmM":
                 val = 0;
                 for c in errline.values(): #list channels
@@ -287,8 +402,20 @@ class ModelBuilder(ModelBuilderBase):
                         else:
                           self.doVar("%s[%g,%g]" % (n, mean-4*float(sigmaL), mean+4*float(sigmaR)))
                     self.out.var(n).setVal(mean)
-                    self.doObj("%s_Pdf" % n, "BifurGauss", "%s, %s_In[%s,%g,%g], %s, %s" % (n, n, args[0], self.out.var(n).getMin(), self.out.var(n).getMax(), sigmaL, sigmaR),True)
+
+                    sigmaStrL = sigmaL
+                    sigmaStrR = sigmaR
+                    if is_func_scaled:
+                        sigmaStrL = '%s_WidthScaledL' % n
+                        sigmaStrR = '%s_WidthScaledR' % n
+                        self.doObj(sigmaStrL, "prod", "%g, %s" % (float(sigmaL), func_scaler))
+                        self.doObj(sigmaStrR, "prod", "%g, %s" % (float(sigmaR), func_scaler))
+                    self.doObj("%s_Pdf" % n, "BifurGauss", "%s, %s_In[%s,%g,%g], %s, %s" % (n, n, args[0], self.out.var(n).getMin(), self.out.var(n).getMax(), sigmaStrL, sigmaStrR),True)
                     self.out.var("%s_In" % n).setConstant(True)
+                    if is_func_scaled:
+                        self.doExp("%s_BoundHi" % n, "%g+%g*@0" % (mean, self.out.var(n).getMax() - mean), "%s" % (func_scaler))
+                        self.doExp("%s_BoundLo" % n, "%g-%g*@0" % (mean, mean - self.out.var(n).getMin()), "%s" % (func_scaler))
+                        self.out.var(n).setRange(self.out.function('%s_BoundLo' % n), self.out.function('%s_BoundHi' % n))
                 else:
                     if len(args) == 3: # mean, sigma, range
                         if self.out.var(n):
@@ -308,13 +435,60 @@ class ModelBuilder(ModelBuilderBase):
                           self.doVar("%s[%g,%g]" % (n, mean-4*sigma, mean+4*sigma))
                     self.out.var(n).setVal(mean)
                     #self.out.var(n).setError(sigma)
-                    self.doObj("%s_Pdf" % n, "Gaussian", "%s, %s_In[%s,%g,%g], %s" % (n, n, args[0], self.out.var(n).getMin(), self.out.var(n).getMax(), args[1]),True)
+                    sigmaStr = args[1]
+                    if is_func_scaled:
+                        sigmaStr = '%s_WidthScaled' % n
+                        self.doObj(sigmaStr, "prod", "%g, %s" % (float(args[1]), func_scaler))
+                    self.doObj("%s_Pdf" % n, "Gaussian", "%s, %s_In[%s,%g,%g], %s" % (n, n, args[0], self.out.var(n).getMin(), self.out.var(n).getMax(), sigmaStr),True)
                     self.out.var("%s_In" % n).setConstant(True)
+                    if is_func_scaled:
+                        boundHi = self.doExp("%s_BoundHi" % n, "%g+%g*@0" % (mean, self.out.var(n).getMax() - mean), "%s" % (func_scaler))
+                        boundLo = self.doExp("%s_BoundLo" % n, "%g-%g*@0" % (mean, mean - self.out.var(n).getMin()), "%s" % (func_scaler))
+                        self.out.var(n).setRange(self.out.function('%s_BoundLo' % n), self.out.function('%s_BoundHi' % n))
                 self.globalobs.append("%s_In" % n)
                 #if self.options.optimizeBoundNuisances: self.out.var(n).setAttribute("optimizeBounds")
+	    elif pdf == "extArg" : continue  
+
             else: raise RuntimeError, "Unsupported pdf %s" % pdf
             if nofloat: 
-              self.out.var("%s" % n).setAttribute("globalConstrained",True)
+              self.out.var(n).setAttribute("globalConstrained",True)
+            #self.out.var(n).Print('V')
+            if n in self.DC.frozenNuisances:
+                self.out.var(n).setConstant(True)
+        if self.options.bin:
+            nuisPdfs = ROOT.RooArgList()
+            nuisVars = ROOT.RooArgSet()
+            for (n,nf,p,a,e) in self.DC.systs:
+                nuisVars.add(self.out.var(n))
+                nuisPdfs.add(self.out.pdf(n+"_Pdf"))
+            self.out.defineSet("nuisances", nuisVars)
+            self.out.nuisPdf = ROOT.RooProdPdf("nuisancePdf", "nuisancePdf", nuisPdfs)
+            self.out._import(self.out.nuisPdf)
+            self.out.nuisPdfs = nuisPdfs
+            gobsVars = ROOT.RooArgSet()
+            for g in self.globalobs: gobsVars.add(self.out.var(g))
+            self.out.defineSet("globalObservables", gobsVars)
+        else: # doesn't work for too many nuisances :-(
+            self.doSet("nuisances", ",".join(["%s"    % n for (n,nf,p,a,e) in self.DC.systs]))
+            self.doObj("nuisancePdf", "PROD", ",".join(["%s_Pdf" % n for (n,nf,p,a,e) in self.DC.systs]))
+            self.doSet("globalObservables", ",".join(self.globalobs))
+	
+    def doNuisancesGroups(self):
+        # Prepare a dictionary of which group a certain nuisance belongs to
+        groupsFor = {}
+        existingNuisanceNames = tuple(set([syst[0] for syst in self.DC.systs]+self.DC.flatParamNuisances.keys()+self.DC.rateParams.keys()+self.DC.extArgs.keys()+self.DC.discretes))
+        for groupName,nuisanceNames in self.DC.groups.iteritems():
+            for nuisanceName in nuisanceNames:
+                if nuisanceName not in existingNuisanceNames:
+                    raise RuntimeError, 'Nuisance group "%(groupName)s" refers to nuisance "%(nuisanceName)s" but it does not exist. Perhaps you misspelled it.' % locals()
+                if nuisanceName in groupsFor:
+                    groupsFor[nuisanceName].append(groupName)
+                else:
+                    groupsFor[nuisanceName] = [ groupName ]
+
+        #print self.DC.groups
+        #print groupsFor
+        for n in existingNuisanceNames:
             # set an attribute related to the group(s) this nuisance belongs to
             if n in groupsFor:
                 groupNames = groupsFor[n]
@@ -322,7 +496,13 @@ class ModelBuilder(ModelBuilderBase):
                     print 'Nuisance "%(n)s" is assigned to the following nuisance groups: %(groupNames)s' % locals()
                 for groupName in groupNames:
                     self.out.var(n).setAttribute('group_'+groupName,True)
-            #self.out.var(n).Print('V')
+
+        for groupName,nuisanceNames in self.DC.groups.iteritems():
+	    nuisanceargset = ROOT.RooArgSet()
+            for nuisanceName in nuisanceNames:
+		nuisanceargset.add(self.out.var(nuisanceName))
+	    self.out.defineSet("group_%s"%groupName,nuisanceargset)
+
 
     def doExpectedEvents(self):
         self.doComment(" --- Expected events in each bin, for each process ----")
@@ -410,7 +590,7 @@ class ModelBuilder(ModelBuilderBase):
         if self.options.out == None: raise RuntimeException
         for nuis,warn in self.DC.flatParamNuisances.iteritems():
             if self.out.var(nuis): self.out.var(nuis).setAttribute("flatParam")
-            elif warn: stderr.write("Missing variable %s declared as flatParam\n" % nuis)
+            elif warn: stderr.write("Missing variable %s declared as flatParam, will create one!\n" % nuis)	
         mc_s = ROOT.RooStats.ModelConfig("ModelConfig",       self.out)
         mc_b = ROOT.RooStats.ModelConfig("ModelConfig_bonly", self.out)
         for (l,mc) in [ ('s',mc_s), ('b',mc_b) ]:

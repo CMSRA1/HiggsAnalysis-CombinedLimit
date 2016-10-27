@@ -13,8 +13,10 @@
 #include <RooRealVar.h>
 #include <RooSimultaneous.h>
 #include <RooGaussian.h>
+#include <RooPoisson.h>
 #include <RooProduct.h>
-#include "../interface/SimpleGaussianConstraint.h"
+#include "HiggsAnalysis/CombinedLimit/interface/SimpleGaussianConstraint.h"
+#include "HiggsAnalysis/CombinedLimit/interface/SimplePoissonConstraint.h"
 #include <boost/ptr_container/ptr_vector.hpp>
 
 class RooMultiPdf;
@@ -121,8 +123,10 @@ class CachingAddNLL : public RooAbsReal {
         virtual RooArgSet* getParameters(const RooArgSet* depList, Bool_t stripDisconnected = kTRUE) const ;
         double  sumWeights() const { return sumWeights_; }
         const RooAbsPdf *pdf() const { return pdf_; }
-        void setZeroPoint() { zeroPoint_ = -this->getVal(); setValueDirty(); }
-        void clearZeroPoint() { zeroPoint_ = 0.0; setValueDirty();  }
+        void setZeroPoint() ;
+        void clearZeroPoint() ;
+        void clearConstantZeroPoint() ;
+        void updateZeroPoint() { clearZeroPoint(); setZeroPoint(); }
         /// note: setIncludeZeroWeights(true) won't have effect unless you also re-call setData
         virtual void  setIncludeZeroWeights(bool includeZeroWeights) ;
         RooSetProxy & params() { return params_; }
@@ -145,6 +149,7 @@ class CachingAddNLL : public RooAbsReal {
         mutable bool isRooRealSum_, fastExit_;
         mutable int canBasicIntegrals_, basicIntegrals_;
         double zeroPoint_;
+        double constantZeroPoint_; // this is arbitrary and kept constant for all the lifetime of the PDF
 
         std::vector<RooRealVar *> bbLiteVars_; // store vars here for faster access
         std::vector<double> bbLiteScales_; // store scales here for faster access
@@ -169,8 +174,13 @@ class CachingSimNLL  : public RooAbsReal {
         static void setNoDeepLogEvalError(bool noDeep) { noDeepLEE_ = noDeep; }
         void setZeroPoint() ; 
         void clearZeroPoint() ;
+        void clearConstantZeroPoint() ;
+        void updateZeroPoint() { clearZeroPoint(); setZeroPoint(); }
         static void forceUnoptimizedConstraints() { optimizeContraints_ = false; }
+        void setChannelMasks(RooArgList const& args);
         friend class CachingAddNLL;
+        // trap this call, since we don't care about propagating it to the sub-components
+        virtual void constOptimizeTestStatistic(ConstOpCode opcode, Bool_t doAlsoTrackingOpt=kTRUE) { }
     private:
         void setup_();
         RooSimultaneous   *pdfOriginal_;
@@ -182,6 +192,8 @@ class CachingSimNLL  : public RooAbsReal {
         std::vector<RooAbsPdf *>        constrainPdfs_;
         std::vector<SimpleGaussianConstraint *>  constrainPdfsFast_;
         std::vector<bool>                        constrainPdfsFastOwned_;
+        std::vector<SimplePoissonConstraint *>   constrainPdfsFastPoisson_;
+        std::vector<bool>                        constrainPdfsFastPoissonOwned_;
         std::vector<CachingAddNLL*>     pdfs_;
         std::auto_ptr<TList>            dataSets_;
         std::vector<RooDataSet *>       datasets_;
@@ -190,6 +202,8 @@ class CachingSimNLL  : public RooAbsReal {
         static bool optimizeContraints_;
         std::vector<double> constrainZeroPoints_;
         std::vector<double> constrainZeroPointsFast_;
+        std::vector<double> constrainZeroPointsFastPoisson_;
+        std::vector<RooAbsReal*> channelMasks_;
 };
 
 }
