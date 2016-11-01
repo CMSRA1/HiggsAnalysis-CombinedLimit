@@ -48,7 +48,7 @@ class ShapeBuilder(ModelBuilder):
             (binVarList, binScaleList) = (None, None)
             (binVarListSig, binScaleListSig) = (None, None)
             if self.options.bbb: (binVarList, binScaleList) = self.createBBLiteVars(b)                
-            if "had" in b and self.options.bbbSig: (binVarListSig, binScaleListSig) = self.createBBLiteVarsSig(b)
+            if "Signal" in b and self.options.bbbSig: (binVarListSig, binScaleListSig) = self.createBBLiteVarsSig(b)
             for p in self.DC.exp[b].keys(): # so that we get only self.DC.processes contributing to this bin
                 if self.DC.exp[b][p] == 0: continue
                 if self.physics.getYieldScale(b,p) == 0: continue # exclude really the pdf
