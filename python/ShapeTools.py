@@ -639,32 +639,41 @@ class ShapeBuilder(ModelBuilder):
         return pdf
 
     def createBBLiteVars(self, b, thr= None):
-        print 'Doing bb-lite for bin ' + b
-        procs = [p for p in self.DC.exp[b].keys() if self.physics.getYieldScale(b,p) != 0 and not self.DC.isSignal[p]]
-        print procs
+        procs = [p for p in self.DC.exp[b].keys() if self.physics.getYieldScale(b,p) != 0 and not self.DC.isSignal[p] and p != "Qcd"]
+        print 'Doing bb-lite for bin ', b, 'with process ', procs
         ROOT.TH1.SetDefaultSumw2(True)
-        htemp = self.getShape(b,procs[0])
-        if thr != None:
-            raise NotImplementedError,"Can't do threshold"
-        thr = -1
-        if htemp != None:
-            hsum = htemp.Clone()
-        else: 
-            return (None,None)
-
-        for p in procs[1:]:
-            hsum.Add(self.getShape(b,p))
-        hsum.Print("range")
-        nbins = hsum.GetNbinsX()
+	htRegionKeys = ["Ht200_600","Ht600_900","Ht900_Inf",]
         binVarList = ROOT.RooArgList()
         binScaleList = ROOT.RooArgList()
-        for x in range(nbins):
-            if hsum.GetBinContent(x+1)>0.: scalevar = (hsum.GetBinError(x+1) / hsum.GetBinContent(x+1))
-            else: scalevar = 0.
-            if scalevar > thr:
-                print scalevar
-                binvar = b + '_bbblite_' + str(x)
-                print 'Creating bbb param ' + binvar                
+	for p in procs:
+	    findSyst = False
+	    for htRegionKey in htRegionKeys:
+		try:
+		    htSystName = "FormulaSyst0_"+htRegionKey
+		    systNameUp = htSystName+"Up"
+		    systNameDown = htSystName+"Down"
+		    systName = htSystName 
+		    htempUp = self.getShape(b,p,syst=systNameUp)
+		    htempDown = self.getShape(b,p,syst=systNameDown)
+		    htemp = self.getShape(b,p)
+		    findSyst = True
+		    break
+		except RuntimeError:
+		    continue
+	    if not findSyst: raise RuntimeError, "Can't find formula syst as syst template"
+	    nbins = htemp.GetNbinsX()
+	    for x in range(nbins):
+		if htempUp.GetBinContent(x+1) > 0. and htempDown.GetBinContent(x+1) > 0.:
+		    scalevar = abs(htempUp.GetBinContent(x+1)-htempDown.GetBinContent(x+1))/2.
+		else:
+		    scalevar = 0.
+		mhtUpStr = str(int(htemp.GetXaxis().GetBinUpEdge(x+1)))
+		mhtLowStr = str(int(htemp.GetXaxis().GetBinLowEdge(x+1)))
+		mhtStr = '_'.join([mhtLowStr,mhtUpStr])
+		incBinStrList = b.split("_")
+		incBinStr = "_".join(["Inc"]+incBinStrList[3:]+[mhtStr,p])
+                binvar = incBinStr + '_'+systName
+		print 'Creating bbb param ' + binvar, ', scaleVar: ',scalevar   
                 self.doObj("%s_Pdf" % binvar, "SimpleGaussianConstraint", "%s[-4,4], %s_In[0,-4,4], %g" % (binvar,binvar,1))
                 self.out.var(binvar).setConstant(False)
                 self.out.var(binvar).setVal(0)
@@ -674,11 +683,9 @@ class ShapeBuilder(ModelBuilder):
                 self.out.nuisPdfs.add(self.out.pdf(binvar+"_Pdf"))
                 self.doObj("%s_Scale" % binvar, "ConstVar", "%g" % (scalevar))
                 binVarList.add(self.out.var(binvar))
-                binScaleList.add(self.out.function(binvar+'_Scale'))
-        binVarList.Print("v")
-        binScaleList.Print("v")
-        return (binVarList, binScaleList)
+                binScaleList.add(self.out.function(binvar+'_Scale'))	
 
+        return (binVarList, binScaleList)
 
     def createBBLiteVarsSig(self, b, thr=None):
         print 'Doing bb-lite for signal in bin ' + b
