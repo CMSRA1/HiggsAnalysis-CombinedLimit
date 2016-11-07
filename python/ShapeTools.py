@@ -47,16 +47,20 @@ class ShapeBuilder(ModelBuilder):
             coeffs = ROOT.RooArgList(); bgcoeffs = ROOT.RooArgList()
             (binVarList, binScaleList) = (None, None)
             (binVarListSig, binScaleListSig) = (None, None)
-            if self.options.bbb: (binVarList, binScaleList) = self.createBBLiteVars(b)                
+            #if self.options.bbb: (binVarList, binScaleList) = self.createBBLiteVars(b)                
             if "Signal" in b and self.options.bbbSig: (binVarListSig, binScaleListSig) = self.createBBLiteVarsSig(b)
             for p in self.DC.exp[b].keys(): # so that we get only self.DC.processes contributing to this bin
                 if self.DC.exp[b][p] == 0: continue
                 if self.physics.getYieldScale(b,p) == 0: continue # exclude really the pdf
                 #print "  +--- Getting pdf for %s in bin %s" % (p,b)
                 (pdf,coeff) = (self.getPdf(b,p), self.out.function("n_exp_bin%s_proc_%s" % (b,p)))
-                if (self.options.bbb) and not self.DC.isSignal[p]: 
-                    if not (binVarList,binScaleList) == (None,None):
-                        pdf.setBinParams(binVarList, binScaleList)
+		for systName in ["FormulaSyst0",]:#,"FormulaSyst2","FormulaSyst3",]:
+		    if int(b.split("_")[-2][2]) < int(systName[-1]): continue
+		    if self.options.bbb and p != "Qcd" and p != "sig":
+		        (binVarList, binScaleList) = self.createBBLiteVars(b,p,systName)                
+                    if (self.options.bbb) and not self.DC.isSignal[p]: 
+                        if not (binVarList,binScaleList) == (None,None):
+                            pdf.setBinParams(binVarList, binScaleList)
                 if (self.options.bbbSig) and self.DC.isSignal[p]:                    
                     if not (binVarListSig,binScaleListSig) == (None,None):
                         pdf.setBinParams(binVarListSig, binScaleListSig)
@@ -638,53 +642,54 @@ class ShapeBuilder(ModelBuilder):
                 return ret
         return pdf
 
-    def createBBLiteVars(self, b, thr= None):
-        procs = [p for p in self.DC.exp[b].keys() if self.physics.getYieldScale(b,p) != 0 and not self.DC.isSignal[p] and p != "Qcd"]
-        print 'Doing bb-lite for bin ', b, 'with process ', procs
+    def createBBLiteVars(self, b, p, systPrefix, thr= None):
+        #procs = [p for p in self.DC.exp[b].keys() if self.physics.getYieldScale(b,p) != 0 and not self.DC.isSignal[p] and p != "Qcd"]
+        print 'Doing bb-lite for bin ', b, 'with process ', p 
         ROOT.TH1.SetDefaultSumw2(True)
 	htRegionKeys = ["Ht200_600","Ht600_900","Ht900_Inf",]
         binVarList = ROOT.RooArgList()
         binScaleList = ROOT.RooArgList()
-	for p in procs:
-	    findSyst = False
-	    for htRegionKey in htRegionKeys:
-		try:
-		    htSystName = "FormulaSyst0_"+htRegionKey
-		    systNameUp = htSystName+"Up"
-		    systNameDown = htSystName+"Down"
-		    systName = htSystName 
-		    htempUp = self.getShape(b,p,syst=systNameUp)
-		    htempDown = self.getShape(b,p,syst=systNameDown)
-		    htemp = self.getShape(b,p)
-		    findSyst = True
-		    break
-		except RuntimeError:
-		    continue
-	    if not findSyst: raise RuntimeError, "Can't find formula syst as syst template"
-	    nbins = htemp.GetNbinsX()
-	    for x in range(nbins):
-		if htempUp.GetBinContent(x+1) > 0. and htempDown.GetBinContent(x+1) > 0.:
-		    scalevar = abs(htempUp.GetBinContent(x+1)-htempDown.GetBinContent(x+1))/2.
-		else:
-		    scalevar = 0.
-		mhtUpStr = str(int(htemp.GetXaxis().GetBinUpEdge(x+1)))
-		mhtLowStr = str(int(htemp.GetXaxis().GetBinLowEdge(x+1)))
-		mhtStr = '_'.join([mhtLowStr,mhtUpStr])
-		incBinStrList = b.split("_")
-		incBinStr = "_".join(["Inc"]+incBinStrList[3:]+[mhtStr,p])
-                binvar = incBinStr + '_'+systName
-		print 'Creating bbb param ' + binvar, ', scaleVar: ',scalevar   
-                self.doObj("%s_Pdf" % binvar, "SimpleGaussianConstraint", "%s[-4,4], %s_In[0,-4,4], %g" % (binvar,binvar,1))
-                self.out.var(binvar).setConstant(False)
-                self.out.var(binvar).setVal(0)
-                self.out.var(binvar).setError(1)
-                self.globalobs.append("%s_In" % binvar)
-                self.out.nuisVars.add(self.out.var(binvar))
-                self.out.nuisPdfs.add(self.out.pdf(binvar+"_Pdf"))
-                self.doObj("%s_Scale" % binvar, "ConstVar", "%g" % (scalevar))
-                binVarList.add(self.out.var(binvar))
-                binScaleList.add(self.out.function(binvar+'_Scale'))	
-
+	findSyst = False
+	for htRegionKey in htRegionKeys:
+	    try:
+	        #htSystName = "FormulaSyst0_"+htRegionKey
+	        htSystName = systPrefix+"_"+htRegionKey
+	        systNameUp = htSystName+"Up"
+	        systNameDown = htSystName+"Down"
+	        systName = htSystName 
+	        htempUp = self.getShape(b,p,syst=systNameUp)
+	        htempDown = self.getShape(b,p,syst=systNameDown)
+	        htemp = self.getShape(b,p)
+	        findSyst = True
+	        break
+	    except RuntimeError:
+	        continue
+	if not findSyst: raise RuntimeError, "Can't find formula syst as syst template"
+	nbins = htemp.GetNbinsX()
+	for x in range(nbins):
+	    if htempUp.GetBinContent(x+1) > 0. and htempDown.GetBinContent(x+1) > 0.:
+	        scalevar = abs(htempUp.GetBinContent(x+1)-htempDown.GetBinContent(x+1))/2.
+	    else:
+	        scalevar = 0.
+	    mhtUpStr = str(int(htemp.GetXaxis().GetBinUpEdge(x+1)))
+	    mhtLowStr = str(int(htemp.GetXaxis().GetBinLowEdge(x+1)))
+	    mhtStr = '_'.join([mhtLowStr,mhtUpStr])
+	    incBinStrList = b.split("_")
+	    incBinStr = "_".join(["Inc"]+incBinStrList[3:]+[mhtStr,p])
+            binvar = incBinStr + '_'+systName
+	    #print 'Creating bbb param ' + binvar, ', scaleVar: ',scalevar   
+            self.doObj("%s_Pdf" % binvar, "SimpleGaussianConstraint", "%s[-4,4], %s_In[0,-4,4], %g" % (binvar,binvar,1))
+            self.out.var(binvar).setConstant(False)
+            self.out.var(binvar).setVal(0)
+            self.out.var(binvar).setError(1)
+            self.globalobs.append("%s_In" % binvar)
+            self.out.nuisVars.add(self.out.var(binvar))
+            self.out.nuisPdfs.add(self.out.pdf(binvar+"_Pdf"))
+            self.doObj("%s_Scale" % binvar.replace("Inc",incBinStrList[2]), "ConstVar", "%g" % (scalevar))
+            binVarList.add(self.out.var(binvar))
+            binScaleList.add(self.out.function(binvar.replace("Inc",incBinStrList[2])+'_Scale'))
+	binVarList.Print("v")
+	binScaleList.Print("v")
         return (binVarList, binScaleList)
 
     def createBBLiteVarsSig(self, b, thr=None):
