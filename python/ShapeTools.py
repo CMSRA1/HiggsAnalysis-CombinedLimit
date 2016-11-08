@@ -60,7 +60,7 @@ class ShapeBuilder(ModelBuilder):
 			if int(b.split("_")[-2][2]) < int(systName[-1]): continue
 			if self.options.bbbFormula and p != "Qcd" and p != "sig":
 			    (binVarList, binScaleList) = self.createBBLiteFormula(b,p,systName)                
-			if (self.options.bbb) and not self.DC.isSignal[p]: 
+			if self.options.bbbFormula and not self.DC.isSignal[p]: 
 			    if not (binVarList,binScaleList) == (None,None):
 				pdf.setBinParams(binVarList, binScaleList)
 		else:
