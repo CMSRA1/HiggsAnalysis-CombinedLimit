@@ -47,20 +47,26 @@ class ShapeBuilder(ModelBuilder):
             coeffs = ROOT.RooArgList(); bgcoeffs = ROOT.RooArgList()
             (binVarList, binScaleList) = (None, None)
             (binVarListSig, binScaleListSig) = (None, None)
-            #if self.options.bbb: (binVarList, binScaleList) = self.createBBLiteVars(b)                
+            if self.options.bbb and not self.options.bbbFormula:
+		(binVarList, binScaleList) = self.createBBLiteVars(b)                
             if "Signal" in b and self.options.bbbSig: (binVarListSig, binScaleListSig) = self.createBBLiteVarsSig(b)
             for p in self.DC.exp[b].keys(): # so that we get only self.DC.processes contributing to this bin
                 if self.DC.exp[b][p] == 0: continue
                 if self.physics.getYieldScale(b,p) == 0: continue # exclude really the pdf
                 #print "  +--- Getting pdf for %s in bin %s" % (p,b)
                 (pdf,coeff) = (self.getPdf(b,p), self.out.function("n_exp_bin%s_proc_%s" % (b,p)))
-		for systName in ["FormulaSyst0",]:#,"FormulaSyst2","FormulaSyst3",]:
-		    if int(b.split("_")[-2][2]) < int(systName[-1]): continue
-		    if self.options.bbb and p != "Qcd" and p != "sig":
-		        (binVarList, binScaleList) = self.createBBLiteVars(b,p,systName)                
-                    if (self.options.bbb) and not self.DC.isSignal[p]: 
-                        if not (binVarList,binScaleList) == (None,None):
-                            pdf.setBinParams(binVarList, binScaleList)
+		if self.options.bbbFormula:
+		    for systName in ["FormulaSyst0",]:#,"FormulaSyst2","FormulaSyst3",]:
+			if int(b.split("_")[-2][2]) < int(systName[-1]): continue
+			if self.options.bbbFormula and p != "Qcd" and p != "sig":
+			    (binVarList, binScaleList) = self.createBBLiteFormula(b,p,systName)                
+			if (self.options.bbb) and not self.DC.isSignal[p]: 
+			    if not (binVarList,binScaleList) == (None,None):
+				pdf.setBinParams(binVarList, binScaleList)
+		else:
+		    if (self.options.bbb) and not self.DC.isSignal[p]: 
+			if not (binVarList,binScaleList) == (None,None):
+			    pdf.setBinParams(binVarList, binScaleList)
                 if (self.options.bbbSig) and self.DC.isSignal[p]:                    
                     if not (binVarListSig,binScaleListSig) == (None,None):
                         pdf.setBinParams(binVarListSig, binScaleListSig)
@@ -642,7 +648,48 @@ class ShapeBuilder(ModelBuilder):
                 return ret
         return pdf
 
-    def createBBLiteVars(self, b, p, systPrefix, thr= None):
+    def createBBLiteVars(self, b, thr= None):
+        print 'Doing bb-lite for bin ' + b
+        procs = [p for p in self.DC.exp[b].keys() if self.physics.getYieldScale(b,p) != 0 and not self.DC.isSignal[p]]
+        print procs
+        ROOT.TH1.SetDefaultSumw2(True)
+        htemp = self.getShape(b,procs[0])
+        if thr != None:
+            raise NotImplementedError,"Can't do threshold"
+        thr = -1
+        if htemp != None:
+            hsum = htemp.Clone()
+        else: 
+            return (None,None)
+
+        for p in procs[1:]:
+            hsum.Add(self.getShape(b,p))
+        hsum.Print("range")
+        nbins = hsum.GetNbinsX()
+        binVarList = ROOT.RooArgList()
+        binScaleList = ROOT.RooArgList()
+        for x in range(nbins):
+            if hsum.GetBinContent(x+1)>0.: scalevar = (hsum.GetBinError(x+1) / hsum.GetBinContent(x+1))
+            else: scalevar = 0.
+            if scalevar > thr:
+                print scalevar
+                binvar = b + '_bbblite_' + str(x)
+                print 'Creating bbb param ' + binvar                
+                self.doObj("%s_Pdf" % binvar, "SimpleGaussianConstraint", "%s[-4,4], %s_In[0,-4,4], %g" % (binvar,binvar,1))
+                self.out.var(binvar).setConstant(False)
+                self.out.var(binvar).setVal(0)
+                self.out.var(binvar).setError(1)
+                self.globalobs.append("%s_In" % binvar)
+                self.out.nuisVars.add(self.out.var(binvar))
+                self.out.nuisPdfs.add(self.out.pdf(binvar+"_Pdf"))
+                self.doObj("%s_Scale" % binvar, "ConstVar", "%g" % (scalevar))
+                binVarList.add(self.out.var(binvar))
+                binScaleList.add(self.out.function(binvar+'_Scale'))
+        binVarList.Print("v")
+        binScaleList.Print("v")
+        return (binVarList, binScaleList)
+
+    def createBBLiteFormula(self, b, p, systPrefix, thr= None):
         #procs = [p for p in self.DC.exp[b].keys() if self.physics.getYieldScale(b,p) != 0 and not self.DC.isSignal[p] and p != "Qcd"]
         print 'Doing bb-lite for bin ', b, 'with process ', p 
         ROOT.TH1.SetDefaultSumw2(True)
@@ -679,6 +726,7 @@ class ShapeBuilder(ModelBuilder):
             binvar = incBinStr + '_'+systName
 	    #print 'Creating bbb param ' + binvar, ', scaleVar: ',scalevar   
             self.doObj("%s_Pdf" % binvar, "SimpleGaussianConstraint", "%s[-4,4], %s_In[0,-4,4], %g" % (binvar,binvar,1))
+            #self.doObj("%s_Pdf" % binvar, "RooLognormal", "%s[-4,4], %s_In[0,-4,4], %g" % (binvar,binvar,1))
             self.out.var(binvar).setConstant(False)
             self.out.var(binvar).setVal(0)
             self.out.var(binvar).setError(1)

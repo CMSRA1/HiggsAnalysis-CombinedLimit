@@ -37,6 +37,7 @@ def addDatacardParserOptions(parser):
     parser.add_option("--X-no-optimize-bound-nusances",  dest="optimizeBoundNuisances", default=True, action="store_false", help="Don't flag nuisances to have a different implementation of bounds")
     parser.add_option("--X-no-optimize-bins",  dest="optimizeTemplateBins", default=True, action="store_false", help="Don't optimize template bins")
     parser.add_option("--bbb", dest="bbb", default=False, action="store_true", help="Create bin-by-bin parameters")
+    parser.add_option("--bbbFormula", dest="bbbFormula", default=False, action="store_true", help="Create bin-by-bin parameters with formula method")
     parser.add_option("--bbbSig", dest="bbbSig", default=False, action="store_true", help="Create bin-by-bin parameters for the signal")
     parser.add_option("--bbbThreshold",     dest="bbbThreshold",     default=0.1,  type="float",  help="Threshold on the relative MC stat uncertainty to include the bbb parameters.")
 
