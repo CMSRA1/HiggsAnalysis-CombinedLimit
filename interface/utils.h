@@ -76,6 +76,9 @@ namespace utils {
     void guessChannelMode(RooSimultaneous &simPdf, RooAbsData &simData, bool verbose=false) ;
     void setChannelGenModes(RooSimultaneous &simPdf, const std::string &binned, const std::string &unbinned, int verbose) ;
 
+    double smoothStepFunc(double x,double smoothRegion);
+    double interpolate(double x,double dhi, double dlo);
+
     /// set style for plots
     void tdrStyle() ;
     
