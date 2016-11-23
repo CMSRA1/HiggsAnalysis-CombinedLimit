@@ -56,8 +56,8 @@ class ShapeBuilder(ModelBuilder):
                 #print "  +--- Getting pdf for %s in bin %s" % (p,b)
                 (pdf,coeff) = (self.getPdf(b,p), self.out.function("n_exp_bin%s_proc_%s" % (b,p)))
 		if self.options.bbbFormula:
-		    for systName in ["FormulaSyst0",]:#,"FormulaSyst2","FormulaSyst3",]:
-			if int(b.split("_")[-2][2]) < int(systName[-1]): continue
+		    for systName in ["FormulaSystAll",]:#,"FormulaSyst2","FormulaSyst3",]:
+			#if int(b.split("_")[-2][2]) < int(systName[-1]): continue
 			if self.options.bbbFormula and p != "Qcd" and p != "sig":
 			    (binVarList, binScaleList) = self.createBBLiteFormula(b,p,systName)                
 			if self.options.bbbFormula and not self.DC.isSignal[p]: 
@@ -693,7 +693,7 @@ class ShapeBuilder(ModelBuilder):
         #procs = [p for p in self.DC.exp[b].keys() if self.physics.getYieldScale(b,p) != 0 and not self.DC.isSignal[p] and p != "Qcd"]
         print 'Doing bb-lite for bin ', b, 'with process ', p 
         ROOT.TH1.SetDefaultSumw2(True)
-	htRegionKeys = ["Ht200_600","Ht600_900","Ht900_Inf",]
+	htRegionKeys = ["Ht200_400","Ht400_600","Ht600_900","Ht900_1200","Ht1200_Inf",]
         binVarList = ROOT.RooArgList()
         binScaleList = ROOT.RooArgList()
 	findSyst = False
