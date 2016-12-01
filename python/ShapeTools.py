@@ -1,6 +1,6 @@
 from sys import stdout, stderr
 import os.path
-import ROOT
+import ROOT,math
 
 from HiggsAnalysis.CombinedLimit.ModelTools import ModelBuilder
 
@@ -47,20 +47,26 @@ class ShapeBuilder(ModelBuilder):
             coeffs = ROOT.RooArgList(); bgcoeffs = ROOT.RooArgList()
             (binVarList, binScaleList) = (None, None)
             (binVarListSig, binScaleListSig) = (None, None)
-            if self.options.bbb and not self.options.bbbFormula:
-		(binVarList, binScaleList) = self.createBBLiteVars(b)                
+	    #if self.options.bbbFormulaUssr:
+	    #	(binVarList, binScaleList) = self.createBBLiteFormulaUssr(b)           
+            if self.options.bbb and not self.options.bbbFormula and not self.options.bbbFormulaUssr:
+		(binVarList, binScaleList) = self.createBBLiteVars(b)           
             if "Signal" in b and self.options.bbbSig: (binVarListSig, binScaleListSig) = self.createBBLiteVarsSig(b)
             for p in self.DC.exp[b].keys(): # so that we get only self.DC.processes contributing to this bin
                 if self.DC.exp[b][p] == 0: continue
                 if self.physics.getYieldScale(b,p) == 0: continue # exclude really the pdf
                 #print "  +--- Getting pdf for %s in bin %s" % (p,b)
                 (pdf,coeff) = (self.getPdf(b,p), self.out.function("n_exp_bin%s_proc_%s" % (b,p)))
-		if self.options.bbbFormula:
+		if self.options.bbbFormula or self.options.bbbFormulaUssr:
+		#if self.options.bbbFormula:
 		    for systName in ["FormulaSystAll",]:#,"FormulaSyst2","FormulaSyst3",]:
 			#if int(b.split("_")[-2][2]) < int(systName[-1]): continue
 			if self.options.bbbFormula and p != "Qcd" and p != "sig":
-			    (binVarList, binScaleList) = self.createBBLiteFormula(b,p,systName)                
-			if self.options.bbbFormula and not self.DC.isSignal[p]: 
+			    (binVarList, binScaleList) = self.createBBLiteFormula(b,p,systName)
+			elif self.options.bbbFormulaUssr and "Qcd" not in p and "sig" not in p and "Ewk" not in p:
+			    (binVarList, binScaleList) = self.createBBLiteFormulaUssr(b,p,systName)
+			if (self.options.bbbFormula or self.options.bbbFormulaUssr) and not self.DC.isSignal[p]: 
+			#if self.options.bbbFormula and not self.DC.isSignal[p]: 
 			    if not (binVarList,binScaleList) == (None,None):
 				pdf.setBinParams(binVarList, binScaleList)
 		else:
@@ -687,6 +693,79 @@ class ShapeBuilder(ModelBuilder):
                 binScaleList.add(self.out.function(binvar+'_Scale'))
         binVarList.Print("v")
         binScaleList.Print("v")
+        return (binVarList, binScaleList)
+
+    def createBBLiteFormulaUssr(self, b, p, thr= None):
+	def returnProc(process):
+	    for eachProcess in ["Ewk","Zinv","Ttw"]:
+		if eachProcess in p:
+		    return eachProcess
+	def cleanBJet(string):
+	    for label in ["eq0b","eq1b","eq2b","eq3b","ge3b","ge4b"]:
+		string = string.replace(label,"")
+	process = returnProc(p)
+	procs = [eachp for eachp in self.DC.exp[b].keys() if self.physics.getYieldScale(b,p) != 0 and not self.DC.isSignal[p] and "Qcd" not in p and "sig" not in p and process in eachp]
+	htRegionKeys = ["Ht200_400","Ht400_600","Ht600_900","Ht900_1200","Ht1200_Inf",]
+        binVarList = ROOT.RooArgList()
+        binScaleList = ROOT.RooArgList()
+	ROOT.TH1.SetDefaultSumw2(True)
+	findSyst = False
+	histList = []
+	histListUp = []
+	histListDown = []
+	for eachp in procs: 
+	    for htRegionKey in htRegionKeys:
+	        try:
+	            #htSystName = "FormulaSyst0_"+htRegionKey
+	            htSystName = "FormulaSystAll_"+htRegionKey
+	            systNameUp = htSystName+"Up"
+	            systNameDown = htSystName+"Down"
+	            systName = htSystName 
+	            htempUp = self.getShape(b,eachp,syst=systNameUp)
+	            htempDown = self.getShape(b,eachp,syst=systNameDown)
+	            htemp = self.getShape(b,eachp)
+	            findSyst = True
+		    histList.append(htemp)
+		    histListUp.append(htempUp)
+		    histListDown.append(htempDown)
+		    break
+	        except RuntimeError:
+	            continue
+	if not findSyst: 
+	    return (None,None)
+	    #raise RuntimeError, "Can't find formula syst as syst template "+str(b)
+	#print [hist.GetName() for hist in histList]
+	nbins = htemp.GetNbinsX()
+	for x in range(nbins):
+	    nHist = len(histList)
+	    binContent = sum([ hist.GetBinContent(x+1) for hist in histList])
+	    relErr = 0.
+	    for ihist in range(nHist):
+		if histListUp[ihist].GetBinContent(x+1) > 0. and histListDown[ihist].GetBinContent(x+1) > 0.:
+		    relErr += (abs(histListUp[ihist].GetBinContent(x+1)-histListDown[ihist].GetBinContent(x+1))/2/binContent)**2
+	    if binContent:
+		scalevar = math.sqrt(relErr)*binContent
+	    else:
+		scalevar = 0.
+	    htemp = histList[0]
+	    mhtUpStr = str(int(htemp.GetXaxis().GetBinUpEdge(x+1)))
+	    mhtLowStr = str(int(htemp.GetXaxis().GetBinLowEdge(x+1)))
+	    mhtStr = '_'.join([mhtLowStr,mhtUpStr])
+	    incBinStrList = b.split("_")
+	    incBinStr = "_".join(["Inc"]+incBinStrList[3:]+[mhtStr,process])
+            binvar = incBinStr + '_'+systName
+	    cleanBJet(binvar)
+	    if not self.out.var(binvar):
+		self.doObj("%s_Pdf" % binvar, "SimpleGaussianConstraint", "%s[-4,4], %s_In[0,-4,4], %g" % (binvar,binvar,1))
+		self.out.var(binvar).setConstant(False)
+		self.out.var(binvar).setVal(0)
+		self.out.var(binvar).setError(1)
+		self.globalobs.append("%s_In" % binvar)
+		self.out.nuisVars.add(self.out.var(binvar))
+		self.out.nuisPdfs.add(self.out.pdf(binvar+"_Pdf"))
+            self.doObj("%s_Scale" % binvar.replace("Inc",incBinStrList[2]), "ConstVar", "%g" % (scalevar))
+            binVarList.add(self.out.var(binvar))
+            binScaleList.add(self.out.function(binvar.replace("Inc",incBinStrList[2])+'_Scale'))
         return (binVarList, binScaleList)
 
     def createBBLiteFormula(self, b, p, systPrefix, thr= None):
