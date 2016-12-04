@@ -44,6 +44,7 @@ bool        MaxLikelihoodFit::saveNormalizations_ = false;
 bool        MaxLikelihoodFit::oldNormNames_ = false;
 bool        MaxLikelihoodFit::saveShapes_ = false;
 bool        MaxLikelihoodFit::saveOverallShapes_ = false;
+bool        MaxLikelihoodFit::saveCovar_ = false;
 bool        MaxLikelihoodFit::saveWithUncertainties_ = false;
 bool        MaxLikelihoodFit::justFit_ = false;
 bool        MaxLikelihoodFit::skipBOnlyFit_ = false;
@@ -71,6 +72,7 @@ MaxLikelihoodFit::MaxLikelihoodFit() :
         ("oldNormNames",  "Name the normalizations as in the workspace, and not as channel/process")
 //        ("saveWorkspace",       "Save post-fit pdfs and data to MaxLikelihoodFitResults.root")
         ("saveShapes",  "Save post-fit binned shapes")
+        ("saveCovariance",  "Save covariance (turn off for speed up)")
         ("saveOverallShapes",  "Save total shapes (and covariance if used with saveWithUncertainties) across all channels")
         ("saveWithUncertainties",  "Save also post-fit uncertainties on the shapes and normalizations (from resampling the covariance matrix)")
         ("numToysForShapes", boost::program_options::value<int>(&numToysForShapes_)->default_value(numToysForShapes_),  "Choose number of toys for re-sampling of the covariance (for shapes with uncertainties)")
@@ -112,6 +114,7 @@ void MaxLikelihoodFit::applyOptions(const boost::program_options::variables_map 
     saveWorkspace_ = vm.count("saveWorkspace");
     justFit_  = vm.count("justFit");
     skipBOnlyFit_ = vm.count("skipBOnlyFit");
+    saveCovar_ = vm.count("saveCovariance");
     noErrors_ = vm.count("noErrors");
     reuseParams_ = vm.count("initFromBonly");
     customStartingPoint_ = vm.count("customStartingPoint");
@@ -662,21 +665,25 @@ void MaxLikelihoodFit::getNormalizations(RooAbsPdf *pdf, const RooArgSet &obs, R
 		    target->AddBinContent(b, std::pow(deltaBi, 2));
 		    int binX = b - 1;
 		    TString xLabel = Form("%s_%d",h->first.c_str(),binX);
-		    for (int bj = 1;bj <= b; bj++) {
-			int binY = bj - 1;
-			TString yLabel = Form("%s_%d",h->first.c_str(),binY);
-			double deltaBj = h->second->GetBinContent(bj) - reference->GetBinContent(bj);
-			targetCovar->AddBinContent(targetCovar->GetBin(b,bj),deltaBj*deltaBi);  // covariance
-			totOverall2Covar->Fill(xLabel,yLabel,deltaBj*deltaBi);
-			if (b != bj) {
-			    targetCovar->AddBinContent(targetCovar->GetBin(bj,b),deltaBj*deltaBi);  // covariance
-			    totOverall2Covar->Fill(yLabel,xLabel,deltaBj*deltaBi);
+		    if (saveCovar_){
+			for (int bj = 1;bj <= b; bj++) {
+			    int binY = bj - 1;
+			    TString yLabel = Form("%s_%d",h->first.c_str(),binY);
+			    double deltaBj = h->second->GetBinContent(bj) - reference->GetBinContent(bj);
+			    targetCovar->AddBinContent(targetCovar->GetBin(b,bj),deltaBj*deltaBi);  // covariance
+			    totOverall2Covar->Fill(xLabel,yLabel,deltaBj*deltaBi);
+			    if (b != bj) {
+				targetCovar->AddBinContent(targetCovar->GetBin(bj,b),deltaBj*deltaBi);  // covariance
+				totOverall2Covar->Fill(yLabel,xLabel,deltaBj*deltaBi);
+			    }
 			}
+		    } else{
+			targetCovar->AddBinContent(targetCovar->GetBin(b,b),deltaBi*deltaBi);  // variance
 		    }
 		}
 	    }
             // deviations across channels in this toy
-	    if (saveOverallShapes_){
+	    if (saveOverallShapes_ && saveCovar_){
 		for (IH h = totByCh1.begin(), eh = totByCh1.end(); h != eh; ++h) {
 		    TH1 *reference = totByCh[h->first];
 		    for (IH h2 = totByCh1.begin();h2 != h; ++h2) {
@@ -798,7 +805,7 @@ void MaxLikelihoodFit::getNormalizations(RooAbsPdf *pdf, const RooArgSet &obs, R
 	    delete datOverall;
 	    delete bkgOverall;
 	}
-	if (saveWithUncertainties_ && saveOverallShapes_){
+	if (saveWithUncertainties_ && saveOverallShapes_ && saveCovar_){
 	    totOverall2Covar->Write();
 	}
 	else{
