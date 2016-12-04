@@ -851,7 +851,16 @@ bool utils::isParameterAtBoundary( const RooRealVar &param ){
     
     return false;
 }
+double utils::smoothStepFunc(double x,double smoothRegion){ 
+if (fabs(x) >= smoothRegion) return x > 0 ? +1 : -1;
+double xnorm = x/smoothRegion, xnorm2 = xnorm*xnorm;
+return 0.125 * xnorm * (xnorm2 * (3.*xnorm2 - 10.) + 15);
+}
 
+double utils::interpolate(double x,double dhi,double dlo){
+    double alpha = x * 0.5 * ((dhi-dlo) + (dhi+dlo)*utils::smoothStepFunc(x,1));
+    return alpha;
+}
 
 bool utils::anyParameterAtBoundaries( const RooArgSet &params, int verbosity ){
 

@@ -44,6 +44,7 @@ protected:
   static bool        saveNormalizations_;
   static bool        oldNormNames_;
   static bool        saveShapes_;
+  static bool        saveCovar_;
   static bool        saveOverallShapes_;
   static bool        saveWithUncertainties_;
   static bool	     saveWorkspace_;
