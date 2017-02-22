@@ -705,33 +705,36 @@ class ShapeBuilder(ModelBuilder):
 		string = string.replace(label,"")
 	process = returnProc(p)
 	procs = [eachp for eachp in self.DC.exp[b].keys() if self.physics.getYieldScale(b,p) != 0 and not self.DC.isSignal[p] and "Qcd" not in p and "sig" not in p and process in eachp]
-	htRegionKeys = ["Ht200_400","Ht400_600","Ht600_900","Ht900_1200","Ht1200_Inf",]
-        binVarList = ROOT.RooArgList()
+	#htRegionKeys = ["Ht200_400","Ht400_600","Ht600_900","Ht900_1200","Ht1200_Inf",]
+	htRegionKeys = ["Ht200_250","Ht250_300","Ht300_350","Ht350_400","Ht400_500","Ht500_600","Ht600_750","Ht750_900","Ht900_1050","Ht1050_1200","Ht1200_Inf",]
+	binVarList = ROOT.RooArgList()
         binScaleList = ROOT.RooArgList()
 	ROOT.TH1.SetDefaultSumw2(True)
 	findSyst = False
 	histList = []
 	histListUp = []
 	histListDown = []
-	for eachp in procs: 
-	    for htRegionKey in htRegionKeys:
-	        try:
-	            #htSystName = "FormulaSyst0_"+htRegionKey
-	            htSystName = "FormulaSystAll_"+htRegionKey
-	            systNameUp = htSystName+"Up"
-	            systNameDown = htSystName+"Down"
-	            systName = htSystName 
-	            htempUp = self.getShape(b,eachp,syst=systNameUp)
-	            htempDown = self.getShape(b,eachp,syst=systNameDown)
-	            htemp = self.getShape(b,eachp)
-	            findSyst = True
-		    histList.append(htemp)
-		    histListUp.append(htempUp)
-		    histListDown.append(htempDown)
-		    break
-	        except RuntimeError:
-	            continue
-	if not findSyst: 
+	#for eachp in procs: 
+	#    if findSyst: break
+	for htRegionKey in htRegionKeys:
+	    if findSyst: break
+	    try:
+	        #htSystName = "FormulaSyst0_"+htRegionKey
+	        htSystName = "FormulaSystAll_"+htRegionKey
+	        systNameUp = htSystName+"Up"
+	        systNameDown = htSystName+"Down"
+	        systName = htSystName 
+	        htempUp = self.getShape(b,p,syst=systNameUp)
+	        htempDown = self.getShape(b,p,syst=systNameDown)
+	        htemp = self.getShape(b,eachp)
+		histList.append(htemp)
+		histListUp.append(htempUp)
+		histListDown.append(htempDown)
+		findSyst = True
+		break
+	    except RuntimeError:
+	        continue
+	if not findSyst:
 	    return (None,None)
 	    #raise RuntimeError, "Can't find formula syst as syst template "+str(b)
 	#print [hist.GetName() for hist in histList]
@@ -772,7 +775,8 @@ class ShapeBuilder(ModelBuilder):
         #procs = [p for p in self.DC.exp[b].keys() if self.physics.getYieldScale(b,p) != 0 and not self.DC.isSignal[p] and p != "Qcd"]
         print 'Doing bb-lite for bin ', b, 'with process ', p 
         ROOT.TH1.SetDefaultSumw2(True)
-	htRegionKeys = ["Ht200_400","Ht400_600","Ht600_900","Ht900_1200","Ht1200_Inf",]
+	#htRegionKeys = ["Ht200_400","Ht400_600","Ht600_900","Ht900_1200","Ht1200_Inf",]
+	htRegionKeys = ["Ht200_250","Ht250_300","Ht300_350","Ht350_400","Ht400_500","Ht500_600","Ht600_750","Ht750_900","Ht900_1050","Ht1050_1200","Ht1200_Inf",]
         binVarList = ROOT.RooArgList()
         binScaleList = ROOT.RooArgList()
 	findSyst = False
@@ -790,7 +794,8 @@ class ShapeBuilder(ModelBuilder):
 	        break
 	    except RuntimeError:
 	        continue
-	if not findSyst: raise RuntimeError, "Can't find formula syst as syst template"
+	if not findSyst: 
+	    return (None,None)
 	nbins = htemp.GetNbinsX()
 	for x in range(nbins):
 	    if htempUp.GetBinContent(x+1) > 0. and htempDown.GetBinContent(x+1) > 0.:
