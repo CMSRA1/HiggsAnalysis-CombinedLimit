@@ -51,6 +51,7 @@ bool        MaxLikelihoodFit::saveCovar_ = false;
 bool        MaxLikelihoodFit::saveWithUncertainties_ = false;
 bool        MaxLikelihoodFit::justFit_ = false;
 bool        MaxLikelihoodFit::skipBOnlyFit_ = false;
+bool        MaxLikelihoodFit::skipSPlusBFit_ = false;
 bool        MaxLikelihoodFit::noErrors_ = false;
 bool        MaxLikelihoodFit::reuseParams_ = false;
 bool        MaxLikelihoodFit::customStartingPoint_ = false;
@@ -82,6 +83,7 @@ MaxLikelihoodFit::MaxLikelihoodFit() :
         ("filterString", boost::program_options::value<std::string>(&filterString_)->default_value(filterString_), "Filter to search for when making covariance and shapes")
         ("justFit",  "Just do the S+B fit, don't do the B-only one, don't save output file")
         ("skipBOnlyFit",  "Skip the B-only fit (do only the S+B fit)")
+        ("skipSPlusBFit",  "Skip the S+B fit (do only the B-only fit)")
         ("noErrors",  "Don't compute uncertainties on the best fit value")
         ("initFromBonly",  "Use the values of the nuisance parameters from the background only fit as the starting point for the s+b fit")
         ("customStartingPoint",  "Don't set the signal model parameters to zero before the fit")
@@ -117,6 +119,7 @@ void MaxLikelihoodFit::applyOptions(const boost::program_options::variables_map 
     saveWorkspace_ = vm.count("saveWorkspace");
     justFit_  = vm.count("justFit");
     skipBOnlyFit_ = vm.count("skipBOnlyFit");
+    skipSPlusBFit_ = vm.count("skipSPlusBFit");
     saveCovar_ = vm.count("saveCovariance");
     noErrors_ = vm.count("noErrors");
     reuseParams_ = vm.count("initFromBonly");
@@ -279,7 +282,9 @@ bool MaxLikelihoodFit::runSpecific(RooWorkspace *w, RooStats::ModelConfig *mc_s,
 
   if (!reuseParams_) w->loadSnapshot("clean"); // Reset, also ensures nll_prefit is same in call to doFit for b and s+b
   r->setVal(preFitValue_); r->setConstant(false); 
-  if (minos_ != "all") {
+  if (skipSPlusBFit_ ) { 
+    // skip s+b fit
+  } else if (minos_ != "all") {
     RooArgList minos; if (minos_ == "poi") minos.add(*r);
     res_s = doFit(*mc_s->GetPdf(), data, minos, constCmdArg_s, /*hesse=*/!noErrors_,/*ndim*/1,/*reuseNLL*/ true); 
     nll_sb_ = nll->getVal()-nll0;
@@ -388,8 +393,14 @@ bool MaxLikelihoodFit::runSpecific(RooWorkspace *w, RooStats::ModelConfig *mc_s,
       	std::cout << "Done! fit s+b and fit b should be identical" << std::endl;
       }
   } else {
+      if (skipSPlusBFit_){
+      	std::cout << "\n --- MaxLikelihoodFit ---" << std::endl;
+      	std::cout << "Done! fit s skipped" << std::endl;
+      }
+      else{
       std::cout << "\n --- MaxLikelihoodFit ---" << std::endl;
       std::cout << "Fit failed."  << std::endl;
+      }
   }
   if (t_fit_sb_) t_fit_sb_->Fill();
 
