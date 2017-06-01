@@ -744,7 +744,7 @@ class ShapeBuilder(ModelBuilder):
             binContent = sum([ hist.GetBinContent(x+1) for hist in histList])
             relErr = 0.
             for ihist in range(nHist):
-                if histListUp[ihist].GetBinContent(x+1) > 0. and histListDown[ihist].GetBinContent(x+1) > 0.:
+                if histListUp[ihist].GetBinContent(x+1) > 0. and histListDown[ihist].GetBinContent(x+1) > 0. and binContent > 0.:
                     relErr += (abs(histListUp[ihist].GetBinContent(x+1)-histListDown[ihist].GetBinContent(x+1))/2/binContent)**2
             if binContent:
                 scalevar = math.sqrt(relErr)*binContent
