@@ -1,5 +1,7 @@
 #include "HiggsAnalysis/CombinedLimit/interface/MaxLikelihoodFit.h"
 #include "HiggsAnalysis/CombinedLimit/interface/RooMinimizerOpt.h"
+#include <iostream>
+#include <fstream>
 #include "RooRealVar.h"
 #include "RooArgSet.h"
 #include "RooRandom.h"
@@ -33,6 +35,7 @@
 #include <iomanip>
 using namespace RooStats;
 
+std::ofstream MaxLikelihoodFit::myfile;
 std::string MaxLikelihoodFit::name_ = "";
 std::string MaxLikelihoodFit::minos_ = "poi";
 std::string MaxLikelihoodFit::out_ = ".";
@@ -635,8 +638,12 @@ void MaxLikelihoodFit::getNormalizations(RooAbsPdf *pdf, const RooArgSet &obs, R
         for (IH h = totByCh.begin(), eh = totByCh.end(); h != eh; ++h) totByCh1[h->first] = (TH1*) h->second->Clone();
         for (IH h = sigByCh.begin(), eh = sigByCh.end(); h != eh; ++h) sigByCh1[h->first] = (TH1*) h->second->Clone();
         for (IH h = bkgByCh.begin(), eh = bkgByCh.end(); h != eh; ++h) bkgByCh1[h->first] = (TH1*) h->second->Clone();
+	if (postfix == "_prefit"){
+	myfile.open("outforNick.csv");}
+
         for (int t = 0; t < ntoys; ++t) {
-	    std::cout << std::endl;
+	    // std::cout << std::endl;
+	    if (postfix == "_prefit") myfile << "\n";
             // zero out partial sums
             for (IH h = totByCh1.begin(), eh = totByCh1.end(); h != eh; ++h) h->second->Reset();
             for (IH h = sigByCh1.begin(), eh = sigByCh1.end(); h != eh; ++h) h->second->Reset();
@@ -668,7 +675,8 @@ void MaxLikelihoodFit::getNormalizations(RooAbsPdf *pdf, const RooArgSet &obs, R
 		    target->AddBinContent(b, std::pow(deltaBi, 2));
 		    int binX = b - 1;
 		    TString xLabel = Form("%s_%d",h->first.c_str(),binX);
-		    std::cout << Form("Bin %d=%g (B_{0}=%g) ",b,h->second->GetBinContent(b),reference->GetBinContent(b));
+		    if (postfix == "_prefit") myfile << postfix +", " + Form("%d",b) + ", " + Form("%f",h->second->GetBinContent(b)) + ", " + Form("%f",reference->GetBinContent(b)) + ", ";
+		    //if (postfix == "_prefit") std::cout << postfix <<", " << b << ", " << h->second->GetBinContent(b) << ", " << reference->GetBinContent(b) << ", ";
 		    for (int bj = 1;bj <= b; bj++) {
 			int binY = bj - 1;
 			TString yLabel = Form("%s_%d",h->first.c_str(),binY);
@@ -716,6 +724,7 @@ void MaxLikelihoodFit::getNormalizations(RooAbsPdf *pdf, const RooArgSet &obs, R
                 }
             }           
         } // end of the toy loop
+	myfile.close();
         // now take square roots and such
         for (pair = bg, i = 0; pair != ed; ++pair, ++i) {
             sumx2[i] = sqrt(sumx2[i]/ntoys);

@@ -33,6 +33,7 @@ protected:
   static std::string name_;
 
   static std::string minos_;
+  static std::ofstream myfile;
 
   static bool justFit_,  skipBOnlyFit_, noErrors_;
   static std::string out_; 
